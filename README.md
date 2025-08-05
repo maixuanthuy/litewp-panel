@@ -52,7 +52,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/maixuanthuy/litewp-panel/mai
 
 ### Alternative Install (if main script fails)
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/maixuanthuy/litewp-panel/main/install-simple.sh)
+# Clone repository and run manually
+git clone https://github.com/maixuanthuy/litewp-panel.git
+cd litewp-panel
+bash install.sh
 ```
 
 ### Manual Install
@@ -65,9 +68,8 @@ cd litewp-panel
 bash install.sh
 
 # 3. Access panel
-# URL: https://your-server-ip:7080
-# Username: admin
-# Password: (displayed after installation)
+# Panel URL: http://your-server-ip:8000
+# OpenLiteSpeed Admin: http://your-server-ip:7080
 ```
 
 ---
@@ -130,7 +132,7 @@ tail -f /var/litewp/panel/logs/panel.log
 ### OpenLiteSpeed Configuration
 ```bash
 # Edit OpenLiteSpeed config
-nano /usr/local/lsws/conf/vhosts/litewp.conf
+nano /usr/local/lsws/conf/vhosts/litewp/vhconf.conf
 
 # Restart OpenLiteSpeed
 /usr/local/lsws/bin/lswsctrl restart

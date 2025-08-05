@@ -63,11 +63,10 @@ install_dependencies() {
 install_openlitespeed() {
     log_message "${BLUE}🚀 Installing OpenLiteSpeed...${NC}"
     
-    # Download and install OpenLiteSpeed
-    wget -O openlitespeed.sh https://repo.litespeed.sh
-    bash openlitespeed.sh
+    # Add LiteSpeed repository (same as OLS1CLK)
+    wget -O - https://repo.litespeed.sh | bash
     
-    # Install OpenLiteSpeed package
+    # Install OpenLiteSpeed
     if [[ "$OS" == "debian" ]]; then
         apt update
         apt install openlitespeed -y
@@ -75,58 +74,65 @@ install_openlitespeed() {
         yum install openlitespeed -y
     fi
     
-    # Verify installation
-    if command -v lswsctrl &> /dev/null; then
+    # Verify installation using multiple methods
+    if command -v lswsctrl &> /dev/null || [[ -f /usr/local/lsws/bin/lswsctrl ]] || [[ -f /usr/bin/lswsctrl ]]; then
         log_message "${GREEN}✅ OpenLiteSpeed installed successfully${NC}"
+        
+        # Set up PHP symlink like OLS1CLK
+        if [[ -f /usr/local/lsws/lsphp83/bin/lsphp ]]; then
+            ln -sf /usr/local/lsws/lsphp83/bin/lsphp /usr/local/lsws/fcgi-bin/lsphpnew
+            if [[ -f /usr/local/lsws/conf/httpd_config.conf ]]; then
+                sed -i -e "s/fcgi-bin\/lsphp/fcgi-bin\/lsphpnew/g" /usr/local/lsws/conf/httpd_config.conf
+                sed -i -e "s/lsphp74\/bin\/lsphp/lsphp83\/bin\/lsphp/g" /usr/local/lsws/conf/httpd_config.conf
+            fi
+            if [[ ! -f /usr/bin/php ]]; then
+                ln -s /usr/local/lsws/lsphp83/bin/php /usr/bin/php
+            fi
+        fi
     else
         log_message "${RED}❌ OpenLiteSpeed installation failed${NC}"
-        log_message "${YELLOW}⚠️  Trying alternative installation method...${NC}"
-        
-        # Alternative installation method
-        wget -O - http://rpms.litespeedtech.com/debian/enable_lst_debian_repo.sh | bash
-        apt install openlitespeed -y
-        
-        if command -v lswsctrl &> /dev/null; then
-            log_message "${GREEN}✅ OpenLiteSpeed installed successfully (alternative method)${NC}"
-        else
-            log_message "${RED}❌ OpenLiteSpeed installation failed completely${NC}"
-            exit 1
-        fi
+        exit 1
     fi
 }
 
 # Function to install lsPHP
 install_lsphp() {
-    log_message "${BLUE}🐘 Installing lsPHP 8.3...${NC}"
+    log_message "${BLUE}🐘 Configuring lsPHP 8.3...${NC}"
     
-    # Install lsPHP 8.3 (already installed with OpenLiteSpeed)
-    # Configure PHP settings
-    cat > /usr/local/lsws/lsphp83/etc/php.ini << 'EOF'
-[PHP]
-memory_limit = 256M
-max_execution_time = 300
-upload_max_filesize = 64M
-post_max_size = 64M
-max_input_vars = 3000
-
-# Security settings
-expose_php = Off
-allow_url_fopen = Off
-allow_url_include = Off
-file_uploads = On
-
-# Error handling
-display_errors = Off
-log_errors = On
-error_log = /var/litewp/logs/php_errors.log
-
-# Session security
-session.cookie_httponly = 1
-session.cookie_secure = 1
-session.use_strict_mode = 1
-EOF
+    # Configure PHP settings (lsPHP 8.3 already installed with OpenLiteSpeed)
+    PHPINICONF="/usr/local/lsws/lsphp83/etc/php/8.3/litespeed/php.ini"
     
-    log_message "${GREEN}✅ lsPHP 8.3 installed and configured${NC}"
+    if [[ -f "$PHPINICONF" ]]; then
+        # Update PHP settings
+        sed -i 's|memory_limit = 128M|memory_limit = 1024M|g' "$PHPINICONF"
+        sed -i 's|max_execution_time = 30|max_execution_time = 360|g' "$PHPINICONF"
+        sed -i 's|max_input_time = 60|max_input_time = 360|g' "$PHPINICONF"
+        sed -i 's|post_max_size = 8M|post_max_size = 512M|g' "$PHPINICONF"
+        sed -i 's|upload_max_filesize = 2M|upload_max_filesize = 512M|g' "$PHPINICONF"
+        
+        # Add security settings
+        echo "" >> "$PHPINICONF"
+        echo "# Security settings" >> "$PHPINICONF"
+        echo "expose_php = Off" >> "$PHPINICONF"
+        echo "allow_url_fopen = Off" >> "$PHPINICONF"
+        echo "allow_url_include = Off" >> "$PHPINICONF"
+        echo "file_uploads = On" >> "$PHPINICONF"
+        echo "" >> "$PHPINICONF"
+        echo "# Error handling" >> "$PHPINICONF"
+        echo "display_errors = Off" >> "$PHPINICONF"
+        echo "log_errors = On" >> "$PHPINICONF"
+        echo "error_log = /var/litewp/logs/php_errors.log" >> "$PHPINICONF"
+        echo "" >> "$PHPINICONF"
+        echo "# Session security" >> "$PHPINICONF"
+        echo "session.cookie_httponly = 1" >> "$PHPINICONF"
+        echo "session.cookie_secure = 1" >> "$PHPINICONF"
+        echo "session.use_strict_mode = 1" >> "$PHPINICONF"
+        
+        log_message "${GREEN}✅ lsPHP 8.3 configured successfully${NC}"
+    else
+        log_message "${YELLOW}⚠️  PHP config file not found at $PHPINICONF${NC}"
+        log_message "${GREEN}✅ lsPHP 8.3 is installed (using default settings)${NC}"
+    fi
 }
 
 # Function to setup directory structure
@@ -198,33 +204,74 @@ setup_database() {
     
     # Create database tables using SQLAlchemy
     python3 -c "
-from app.database.database import engine, Base
-from app.models.models import WordPressSite, AdminSettings, BackupLog, SecurityLog
+import sys
+import os
+sys.path.append('/var/litewp/panel')
 
-# Create all tables
-Base.metadata.create_all(bind=engine)
-
-# Insert default admin settings
-from sqlalchemy.orm import sessionmaker
-from app.database.database import get_db
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-db = SessionLocal()
-
-# Check if admin settings already exist
-existing_settings = db.query(AdminSettings).first()
-if not existing_settings:
-    default_settings = AdminSettings(
-        admin_email='admin@example.com',
-        backup_retention=7,
-        auto_ssl=True,
-        security_level='medium'
-    )
-    db.add(default_settings)
-    db.commit()
-
-db.close()
-print('Database initialized successfully')
+try:
+    from app.database.database import engine, Base
+    from app.models.models import WordPressSite, AdminSettings, BackupLog, SecurityLog
+    
+    # Create all tables
+    Base.metadata.create_all(bind=engine)
+    
+    # Insert default admin settings
+    from sqlalchemy.orm import sessionmaker
+    
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+    
+    # Check if admin settings already exist
+    existing_settings = db.query(AdminSettings).first()
+    if not existing_settings:
+        default_settings = AdminSettings(
+            admin_email='admin@example.com',
+            backup_retention=7,
+            auto_ssl=True,
+            security_level='medium'
+        )
+        db.add(default_settings)
+        db.commit()
+    
+    db.close()
+    print('Database initialized successfully')
+except Exception as e:
+    print(f'Database initialization error: {e}')
+    # Create simple SQLite database as fallback
+    import sqlite3
+    conn = sqlite3.connect('/var/litewp/panel/database/panel.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS wordpress_sites (
+            id INTEGER PRIMARY KEY,
+            domain TEXT UNIQUE,
+            wp_version TEXT,
+            db_name TEXT,
+            db_user TEXT,
+            db_password TEXT,
+            status TEXT DEFAULT 'active',
+            ssl_enabled BOOLEAN DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS admin_settings (
+            id INTEGER PRIMARY KEY,
+            admin_email TEXT,
+            backup_retention INTEGER DEFAULT 7,
+            auto_ssl BOOLEAN DEFAULT 1,
+            security_level TEXT DEFAULT 'medium',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
+        INSERT OR IGNORE INTO admin_settings (admin_email, backup_retention, auto_ssl, security_level) 
+        VALUES ('admin@example.com', 7, 1, 'medium')
+    ''')
+    conn.commit()
+    conn.close()
+    print('Fallback database created successfully')
 "
     
     chmod 600 /var/litewp/panel/database/panel.db
@@ -236,11 +283,46 @@ print('Database initialized successfully')
 configure_openlitespeed() {
     log_message "${BLUE}⚙️ Configuring OpenLiteSpeed...${NC}"
     
+    # Generate self-signed certificate like OLS1CLK
+    if [[ ! -f /usr/local/lsws/conf/example.key ]]; then
+        openssl req -x509 -nodes -days 820 -newkey rsa:2048 \
+            -keyout /usr/local/lsws/conf/example.key \
+            -out /usr/local/lsws/conf/example.crt \
+            -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+        chmod 600 /usr/local/lsws/conf/example.key
+        chmod 600 /usr/local/lsws/conf/example.crt
+    fi
+    
+    # Update main configuration
+    if [[ -f /usr/local/lsws/conf/httpd_config.conf ]]; then
+        # Update admin email
+        sed -i -e "s/adminEmails/adminEmails admin@example.com\n#adminEmails/" /usr/local/lsws/conf/httpd_config.conf
+        
+        # Update ports
+        sed -i -e "s/8088/80/" /usr/local/lsws/conf/httpd_config.conf
+        
+        # Add SSL listener
+        cat >> /usr/local/lsws/conf/httpd_config.conf << 'EOF'
+
+listener Defaultssl {
+address                 *:443
+secure                  1
+map                     Example *
+keyFile                 /usr/local/lsws/conf/example.key
+certFile                /usr/local/lsws/conf/example.crt
+}
+
+EOF
+    fi
+    
     # Create LiteWP virtual host configuration
-    cat > /usr/local/lsws/conf/vhosts/litewp.conf << 'EOF'
+    mkdir -p /usr/local/lsws/conf/vhosts/litewp/
+    cat > /usr/local/lsws/conf/vhosts/litewp/vhconf.conf << 'EOF'
 docRoot                   /var/litewp/wordpress
-enableGzip               1
-enableBr                  1
+
+accesslog  {
+  useServer               1
+}
 
 index  {
   useServer               0
@@ -249,32 +331,6 @@ index  {
 
 scripthandler  {
   add                     lsapi:lsphp83 php
-}
-
-extprocessor lsphp83 {
-  type                    lsapi
-  address                 uds://tmp/lshttpd/lsphp.sock
-  maxConns                35
-  env                     PHP_LSAPI_MAX_REQUESTS=500
-  env                     PHP_LSAPI_CHILDREN=35
-  initTimeout             60
-  retryTimeout            0
-  pcKeepAliveTimeout      300
-  respBuffer              0
-  autoStart               1
-  path                    lsphp83/bin/lsphp
-  backlog                 100
-  instances               1
-}
-
-rewrite  {
-  enable                  1
-  rules                   <<<END_rules
-RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . /index.php [L]
-END_rules
 }
 
 context / {
@@ -289,10 +345,43 @@ context / {
   addHeader              X-XSS-Protection "1; mode=block"
   addHeader              Referrer-Policy "strict-origin-when-cross-origin"
 }
+
+rewrite  {
+  enable                  1
+  autoLoadHtaccess        1
+}
 EOF
     
-    # Enable the virtual host
-    ln -sf /usr/local/lsws/conf/vhosts/litewp.conf /usr/local/lsws/conf/vhosts/
+    # Add virtual host to main config
+    cat >> /usr/local/lsws/conf/httpd_config.conf << 'EOF'
+
+virtualhost litewp {
+vhRoot                  /var/litewp/wordpress
+configFile              /usr/local/lsws/conf/vhosts/litewp/vhconf.conf
+allowSymbolLink         1
+enableScript            1
+restrained              0
+setUIDMode              2
+}
+
+listener litewp {
+address                 *:80
+secure                  0
+map                     litewp *
+}
+
+listener litewpssl {
+address                 *:443
+secure                  1
+map                     litewp *
+keyFile                 /usr/local/lsws/conf/example.key
+certFile                /usr/local/lsws/conf/example.crt
+}
+
+EOF
+    
+    # Set proper ownership
+    chown -R lsadm:lsadm /usr/local/lsws/conf/
     
     log_message "${GREEN}✅ OpenLiteSpeed configured${NC}"
 }
@@ -430,16 +519,16 @@ display_success() {
     log_message ""
     log_message "📊 Installation Summary:"
     log_message "   • OpenLiteSpeed: ✅ Installed"
-    log_message "   • lsPHP 8.1: ✅ Installed"
+    log_message "   • lsPHP 8.3: ✅ Installed"
     log_message "   • FastAPI: ✅ Installed"
     log_message "   • Database: ✅ Configured"
     log_message "   • Security: ✅ Configured"
     log_message "   • Backup: ✅ Configured"
     log_message ""
     log_message "🌐 Access Information:"
-    log_message "   • Panel URL: https://${IP}:7080"
-    log_message "   • Username: admin"
-    log_message "   • Password: admin"
+    log_message "   • Panel URL: http://${IP}:8000"
+    log_message "   • OpenLiteSpeed Admin: http://${IP}:7080"
+    log_message "   • WordPress Sites: http://${IP}:80"
     log_message ""
     log_message "📁 Important Directories:"
     log_message "   • Panel: /var/litewp/panel/"
@@ -448,7 +537,7 @@ display_success() {
     log_message "   • Logs: /var/litewp/logs/"
     log_message ""
     log_message "🔧 Next Steps:"
-    log_message "   1. Access the panel at https://${IP}:7080"
+    log_message "   1. Access the panel at http://${IP}:8000"
     log_message "   2. Add your first WordPress site"
     log_message "   3. Configure SSL certificates"
     log_message "   4. Set up regular backups"
