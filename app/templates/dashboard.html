@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LiteWP Panel - Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fas fa-server"></i> LiteWP Panel</h1>
+                <p>Single Admin WordPress Hosting</p>
+            </div>
+            <nav class="nav">
+                <button class="nav-btn active" onclick="showSection('dashboard')">
+                    <i class="fas fa-tachometer-alt"></i> Dashboard
+                </button>
+                <button class="nav-btn" onclick="showSection('sites')">
+                    <i class="fas fa-globe"></i> Sites
+                </button>
+                <button class="nav-btn" onclick="showSection('backups')">
+                    <i class="fas fa-download"></i> Backups
+                </button>
+                <button class="nav-btn" onclick="showSection('security')">
+                    <i class="fas fa-shield-alt"></i> Security
+                </button>
+            </nav>
+        </header>
+
+        <!-- Dashboard Section -->
+        <section id="dashboard" class="section active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-globe"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Total Sites</h3>
+                        <p id="totalSites">0</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-lock"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>SSL Sites</h3>
+                        <p id="sslSites">0</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-hdd"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Disk Usage</h3>
+                        <p id="diskUsage">0 GB</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-memory"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Memory</h3>
+                        <p id="memoryUsage">0%</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="actions-panel">
+                <button class="btn btn-primary" onclick="addSite()">
+                    <i class="fas fa-plus"></i> Add WordPress Site
+                </button>
+                <button class="btn btn-secondary" onclick="backupAll()">
+                    <i class="fas fa-download"></i> Backup All Sites
+                </button>
+                <button class="btn btn-info" onclick="refreshStats()">
+                    <i class="fas fa-sync"></i> Refresh Stats
+                </button>
+            </div>
+
+            <div class="recent-sites">
+                <h2>Recent Sites</h2>
+                <div id="sitesList" class="sites-grid">
+                    <!-- Sites will be loaded here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Sites Section -->
+        <section id="sites" class="section">
+            <div class="section-header">
+                <h2><i class="fas fa-globe"></i> WordPress Sites</h2>
+                <button class="btn btn-primary" onclick="addSite()">
+                    <i class="fas fa-plus"></i> Add New Site
+                </button>
+            </div>
+            
+            <div id="sitesListFull" class="sites-list">
+                <!-- Full sites list will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Backups Section -->
+        <section id="backups" class="section">
+            <div class="section-header">
+                <h2><i class="fas fa-download"></i> Backup Management</h2>
+                <button class="btn btn-primary" onclick="backupAll()">
+                    <i class="fas fa-download"></i> Create All Backups
+                </button>
+            </div>
+            
+            <div id="backupsList" class="backups-list">
+                <!-- Backups will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Security Section -->
+        <section id="security" class="section">
+            <div class="section-header">
+                <h2><i class="fas fa-shield-alt"></i> Security</h2>
+                <button class="btn btn-primary" onclick="runSecurityScan()">
+                    <i class="fas fa-search"></i> Run Security Scan
+                </button>
+            </div>
+            
+            <div id="securityStatus" class="security-status">
+                <!-- Security status will be loaded here -->
+            </div>
+        </section>
+    </div>
+
+    <!-- Add Site Modal -->
+    <div id="addSiteModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Add New WordPress Site</h3>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <form id="addSiteForm">
+                    <div class="form-group">
+                        <label for="domain">Domain Name:</label>
+                        <input type="text" id="domain" name="domain" placeholder="example.com" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create Site</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>Loading...</p>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html> 
