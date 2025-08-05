@@ -67,7 +67,9 @@ install_openlitespeed() {
     wget -O openlitespeed.sh https://repo.litespeed.sh
     bash openlitespeed.sh
     
+    # Install OpenLiteSpeed package
     if [[ "$OS" == "debian" ]]; then
+        apt update
         apt install openlitespeed -y
     else
         yum install openlitespeed -y
@@ -78,19 +80,28 @@ install_openlitespeed() {
         log_message "${GREEN}✅ OpenLiteSpeed installed successfully${NC}"
     else
         log_message "${RED}❌ OpenLiteSpeed installation failed${NC}"
-        exit 1
+        log_message "${YELLOW}⚠️  Trying alternative installation method...${NC}"
+        
+        # Alternative installation method
+        wget -O - http://rpms.litespeedtech.com/debian/enable_lst_debian_repo.sh | bash
+        apt install openlitespeed -y
+        
+        if command -v lswsctrl &> /dev/null; then
+            log_message "${GREEN}✅ OpenLiteSpeed installed successfully (alternative method)${NC}"
+        else
+            log_message "${RED}❌ OpenLiteSpeed installation failed completely${NC}"
+            exit 1
+        fi
     fi
 }
 
 # Function to install lsPHP
 install_lsphp() {
-    log_message "${BLUE}🐘 Installing lsPHP 8.1...${NC}"
+    log_message "${BLUE}🐘 Installing lsPHP 8.3...${NC}"
     
-    # Install lsPHP 8.1
-    /usr/local/lsws/bin/lsphpctl install 8.1
-    
+    # Install lsPHP 8.3 (already installed with OpenLiteSpeed)
     # Configure PHP settings
-    cat > /usr/local/lsws/lsphp81/etc/php.ini << 'EOF'
+    cat > /usr/local/lsws/lsphp83/etc/php.ini << 'EOF'
 [PHP]
 memory_limit = 256M
 max_execution_time = 300
@@ -115,7 +126,7 @@ session.cookie_secure = 1
 session.use_strict_mode = 1
 EOF
     
-    log_message "${GREEN}✅ lsPHP 8.1 installed and configured${NC}"
+    log_message "${GREEN}✅ lsPHP 8.3 installed and configured${NC}"
 }
 
 # Function to setup directory structure
@@ -153,8 +164,13 @@ install_python_deps() {
     # Upgrade pip
     pip install --upgrade pip
     
-    # Install dependencies
-    pip install fastapi uvicorn sqlalchemy python-multipart jinja2 python-dotenv
+    # Install dependencies from requirements.txt
+    if [[ -f "requirements.txt" ]]; then
+        pip install -r requirements.txt
+    else
+        # Fallback to manual installation
+        pip install fastapi uvicorn sqlalchemy python-multipart jinja2 python-dotenv requests cryptography bcrypt python-jose[cryptography] passlib[bcrypt]
+    fi
     
     log_message "${GREEN}✅ Python dependencies installed${NC}"
 }
@@ -163,34 +179,53 @@ install_python_deps() {
 setup_database() {
     log_message "${BLUE}🗄️ Setting up database...${NC}"
     
-    # Create SQLite database
-    sqlite3 /var/litewp/panel/database/panel.db << 'EOF'
-CREATE TABLE wordpress_sites (
-    id INTEGER PRIMARY KEY,
-    domain TEXT UNIQUE,
-    wp_version TEXT,
-    db_name TEXT,
-    db_user TEXT,
-    db_password TEXT,
-    status TEXT DEFAULT 'active',
-    ssl_enabled BOOLEAN DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+    # Create database directory
+    mkdir -p /var/litewp/panel/database
+    
+    # Copy application files to panel directory
+    if [[ -d "app" ]]; then
+        cp -r app/* /var/litewp/panel/app/
+    fi
+    
+    # Copy requirements.txt
+    if [[ -f "requirements.txt" ]]; then
+        cp requirements.txt /var/litewp/panel/
+    fi
+    
+    # Initialize database using Python
+    cd /var/litewp/panel
+    source /var/litewp/venv/bin/activate
+    
+    # Create database tables using SQLAlchemy
+    python3 -c "
+from app.database.database import engine, Base
+from app.models.models import WordPressSite, AdminSettings, BackupLog, SecurityLog
 
-CREATE TABLE admin_settings (
-    id INTEGER PRIMARY KEY,
-    admin_email TEXT,
-    backup_retention INTEGER DEFAULT 7,
-    auto_ssl BOOLEAN DEFAULT 1,
-    security_level TEXT DEFAULT 'medium',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+# Create all tables
+Base.metadata.create_all(bind=engine)
 
--- Insert default admin settings
-INSERT INTO admin_settings (admin_email, backup_retention, auto_ssl, security_level) 
-VALUES ('admin@example.com', 7, 1, 'medium');
-EOF
+# Insert default admin settings
+from sqlalchemy.orm import sessionmaker
+from app.database.database import get_db
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+db = SessionLocal()
+
+# Check if admin settings already exist
+existing_settings = db.query(AdminSettings).first()
+if not existing_settings:
+    default_settings = AdminSettings(
+        admin_email='admin@example.com',
+        backup_retention=7,
+        auto_ssl=True,
+        security_level='medium'
+    )
+    db.add(default_settings)
+    db.commit()
+
+db.close()
+print('Database initialized successfully')
+"
     
     chmod 600 /var/litewp/panel/database/panel.db
     
@@ -213,10 +248,10 @@ index  {
 }
 
 scripthandler  {
-  add                     lsapi:lsphp81 php
+  add                     lsapi:lsphp83 php
 }
 
-extprocessor lsphp81 {
+extprocessor lsphp83 {
   type                    lsapi
   address                 uds://tmp/lshttpd/lsphp.sock
   maxConns                35
@@ -227,7 +262,7 @@ extprocessor lsphp81 {
   pcKeepAliveTimeout      300
   respBuffer              0
   autoStart               1
-  path                    lsphp81/bin/lsphp
+  path                    lsphp83/bin/lsphp
   backlog                 100
   instances               1
 }
@@ -321,7 +356,7 @@ User=root
 Group=root
 WorkingDirectory=/var/litewp/panel
 Environment=PATH=/var/litewp/venv/bin
-ExecStart=/var/litewp/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+ExecStart=/var/litewp/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 Restart=always
 RestartSec=10
 

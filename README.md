@@ -47,13 +47,18 @@ LiteWP Panel Architecture:
 
 ### Quick Install
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/your-repo/litewp-panel/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/maixuanthuy/litewp-panel/main/install.sh)
+```
+
+### Alternative Install (if main script fails)
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/maixuanthuy/litewp-panel/main/install-simple.sh)
 ```
 
 ### Manual Install
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-repo/litewp-panel.git
+git clone https://github.com/maixuanthuy/litewp-panel.git
 cd litewp-panel
 
 # 2. Run installation script
@@ -244,9 +249,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Documentation**: [Wiki](https://github.com/your-repo/litewp-panel/wiki)
-- **Issues**: [GitHub Issues](https://github.com/your-repo/litewp-panel/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-repo/litewp-panel/discussions)
+- **Documentation**: [Wiki](https://github.com/maixuanthuy/litewp-panel/wiki)
+- **Issues**: [GitHub Issues](https://github.com/maixuanthuy/litewp-panel/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/maixuanthuy/litewp-panel/discussions)
 
 ---
 
