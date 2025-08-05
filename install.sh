@@ -191,6 +191,12 @@ setup_database() {
     # Copy application files to panel directory
     if [[ -d "app" ]]; then
         cp -r app/* /var/litewp/panel/app/
+        # Copy main.py separately to ensure it's copied
+        if [[ -f "app/main.py" ]]; then
+            cp app/main.py /var/litewp/panel/app/
+        fi
+        # Copy __init__.py files
+        find app -name "__init__.py" -exec cp {} /var/litewp/panel/app/ \;
     fi
     
     # Copy requirements.txt
