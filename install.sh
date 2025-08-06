@@ -196,6 +196,11 @@ configure_openlitespeed() {
     # Stop OpenLiteSpeed to configure
     systemctl stop lsws
     
+    # Create necessary directories
+    mkdir -p "$OLS_ROOT/conf/vhosts/litewp-panel"
+    mkdir -p "$OLS_ROOT/Example/litewp-panel"
+    mkdir -p "$PANEL_DIR/logs"
+    
     # Create panel virtual host configuration
     cat > "$OLS_ROOT/conf/vhosts/litewp-panel/vhconf.conf" << 'EOF'
 docRoot                   $VH_ROOT/frontend
