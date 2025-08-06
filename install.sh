@@ -1,604 +1,459 @@
 #!/bin/bash
 
-# LiteWP Panel Installation Script
-# Single Admin WordPress Hosting Panel
+# LiteWP Installation Script
+# Simple WordPress Hosting Panel with OpenLiteSpeed
+# Version: 1.0.0
 
 set -e
 
-# Colors for output
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
-# Log file
-LOG_FILE="/tmp/litewp_install.log"
+# Variables
+LITEWP_DIR="/usr/local/litewp"
+PANEL_DIR="$LITEWP_DIR/panel"
+WEBSITES_DIR="$LITEWP_DIR/websites"
+CONFIG_DIR="$LITEWP_DIR/config"
+BACKUP_DIR="$LITEWP_DIR/backups"
+LOGS_DIR="$LITEWP_DIR/logs"
+OLS_ROOT="/usr/local/lsws"
 
-# Function to log messages
-log_message() {
-    echo -e "$1" | tee -a "$LOG_FILE"
+# Functions
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
 }
 
-# Function to check if running as root
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        log_message "${RED}❌ This script must be run as root${NC}"
+        print_error "This script must be run as root"
         exit 1
     fi
 }
 
-# Function to detect OS
-detect_os() {
-    log_message "${BLUE}🔍 Detecting operating system...${NC}"
-    
+check_os() {
     if [[ -f /etc/debian_version ]]; then
         OS="debian"
-        PACKAGE_MANAGER="apt"
-        log_message "${GREEN}✅ Detected: Debian/Ubuntu${NC}"
-    elif [[ -f /etc/redhat-release ]]; then
-        OS="redhat"
-        PACKAGE_MANAGER="yum"
-        log_message "${GREEN}✅ Detected: CentOS/RHEL${NC}"
+        print_success "Detected Debian/Ubuntu system"
     else
-        log_message "${RED}❌ Unsupported operating system${NC}"
+        print_error "This script only supports Debian/Ubuntu"
         exit 1
     fi
 }
 
-# Function to install system dependencies
-install_dependencies() {
-    log_message "${BLUE}📦 Installing system dependencies...${NC}"
-    
-    # Update package list
-    $PACKAGE_MANAGER update -y
-    
-    # Install basic dependencies
-    $PACKAGE_MANAGER install -y wget curl unzip git python3 python3-pip python3-venv
-    
-    log_message "${GREEN}✅ System dependencies installed${NC}"
+update_system() {
+    print_status "Updating system packages..."
+    apt update -qq
+    apt upgrade -y -qq
+    print_success "System updated"
 }
 
-# Function to install OpenLiteSpeed
-install_openlitespeed() {
-    log_message "${BLUE}🚀 Installing OpenLiteSpeed...${NC}"
+install_dependencies() {
+    print_status "Installing dependencies..."
     
-    # Add LiteSpeed repository (same as OLS1CLK)
-    wget -O - https://repo.litespeed.sh | bash
+    # Install required packages
+    apt install -y -qq \
+        curl \
+        wget \
+        unzip \
+        git \
+        sqlite3 \
+        redis-server \
+        certbot \
+        python3-certbot
+    
+    print_success "Dependencies installed"
+}
+
+install_openlitespeed() {
+    print_status "Installing OpenLiteSpeed..."
+    
+    # Add LiteSpeed repository
+    wget -O - http://rpms.litespeedtech.com/debian/enable_lst_debian_repo.sh | bash
     
     # Install OpenLiteSpeed
-    if [[ "$OS" == "debian" ]]; then
-        apt update
-        apt install openlitespeed -y
-    else
-        yum install openlitespeed -y
-    fi
+    apt install -y openlitespeed
     
-    # Verify installation using multiple methods
-    if command -v lswsctrl &> /dev/null || [[ -f /usr/local/lsws/bin/lswsctrl ]] || [[ -f /usr/bin/lswsctrl ]]; then
-        log_message "${GREEN}✅ OpenLiteSpeed installed successfully${NC}"
-        
-        # Set up PHP symlink like OLS1CLK
-        if [[ -f /usr/local/lsws/lsphp83/bin/lsphp ]]; then
-            ln -sf /usr/local/lsws/lsphp83/bin/lsphp /usr/local/lsws/fcgi-bin/lsphpnew
-            if [[ -f /usr/local/lsws/conf/httpd_config.conf ]]; then
-                sed -i -e "s/fcgi-bin\/lsphp/fcgi-bin\/lsphpnew/g" /usr/local/lsws/conf/httpd_config.conf
-                sed -i -e "s/lsphp74\/bin\/lsphp/lsphp83\/bin\/lsphp/g" /usr/local/lsws/conf/httpd_config.conf
-            fi
-            if [[ ! -f /usr/bin/php ]]; then
-                ln -s /usr/local/lsws/lsphp83/bin/php /usr/bin/php
-            fi
-        fi
-    else
-        log_message "${RED}❌ OpenLiteSpeed installation failed${NC}"
-        exit 1
-    fi
+    # Install LSPHP 8.3
+    apt install -y lsphp83 lsphp83-mysql lsphp83-common lsphp83-curl lsphp83-gd lsphp83-mbstring lsphp83-xml lsphp83-zip
+    
+    print_success "OpenLiteSpeed installed"
 }
 
-# Function to install lsPHP
-install_lsphp() {
-    log_message "${BLUE}🐘 Configuring lsPHP 8.3...${NC}"
+install_mariadb() {
+    print_status "Installing MariaDB..."
     
-    # Configure PHP settings (lsPHP 8.3 already installed with OpenLiteSpeed)
-    PHPINICONF="/usr/local/lsws/lsphp83/etc/php/8.3/litespeed/php.ini"
+    # Install MariaDB
+    apt install -y mariadb-server mariadb-client
     
-    if [[ -f "$PHPINICONF" ]]; then
-        # Update PHP settings
-        sed -i 's|memory_limit = 128M|memory_limit = 1024M|g' "$PHPINICONF"
-        sed -i 's|max_execution_time = 30|max_execution_time = 360|g' "$PHPINICONF"
-        sed -i 's|max_input_time = 60|max_input_time = 360|g' "$PHPINICONF"
-        sed -i 's|post_max_size = 8M|post_max_size = 512M|g' "$PHPINICONF"
-        sed -i 's|upload_max_filesize = 2M|upload_max_filesize = 512M|g' "$PHPINICONF"
-        
-        # Add security settings
-        echo "" >> "$PHPINICONF"
-        echo "# Security settings" >> "$PHPINICONF"
-        echo "expose_php = Off" >> "$PHPINICONF"
-        echo "allow_url_fopen = Off" >> "$PHPINICONF"
-        echo "allow_url_include = Off" >> "$PHPINICONF"
-        echo "file_uploads = On" >> "$PHPINICONF"
-        echo "" >> "$PHPINICONF"
-        echo "# Error handling" >> "$PHPINICONF"
-        echo "display_errors = Off" >> "$PHPINICONF"
-        echo "log_errors = On" >> "$PHPINICONF"
-        echo "error_log = /var/litewp/logs/php_errors.log" >> "$PHPINICONF"
-        echo "" >> "$PHPINICONF"
-        echo "# Session security" >> "$PHPINICONF"
-        echo "session.cookie_httponly = 1" >> "$PHPINICONF"
-        echo "session.cookie_secure = 1" >> "$PHPINICONF"
-        echo "session.use_strict_mode = 1" >> "$PHPINICONF"
-        
-        log_message "${GREEN}✅ lsPHP 8.3 configured successfully${NC}"
-    else
-        log_message "${YELLOW}⚠️  PHP config file not found at $PHPINICONF${NC}"
-        log_message "${GREEN}✅ lsPHP 8.3 is installed (using default settings)${NC}"
-    fi
+    # Secure MariaDB installation
+    mysql -e "DELETE FROM mysql.user WHERE User='';"
+    mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
+    mysql -e "DROP DATABASE IF EXISTS test;"
+    mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
+    mysql -e "FLUSH PRIVILEGES;"
+    
+    print_success "MariaDB installed and secured"
 }
 
-# Function to setup directory structure
-setup_directories() {
-    log_message "${BLUE}📁 Setting up directory structure...${NC}"
+create_directories() {
+    print_status "Creating LiteWP directories..."
     
-    # Create main directories
-    mkdir -p /var/litewp/{panel,wordpress,backups,logs,ssl}
+    mkdir -p "$PANEL_DIR"
+    mkdir -p "$WEBSITES_DIR"
+    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$BACKUP_DIR"
+    mkdir -p "$LOGS_DIR"
+    mkdir -p "$PANEL_DIR/backend"
+    mkdir -p "$PANEL_DIR/frontend"
+    mkdir -p "$PANEL_DIR/tools"
     
-    # Create panel subdirectories
-    mkdir -p /var/litewp/panel/{app,database,logs,config,scripts,static}
-    mkdir -p /var/litewp/panel/app/{api,utils,static}
-    mkdir -p /var/litewp/panel/app/static/{css,js,images}
-    
-    # Set permissions
-    chown -R litewp-panel:litewp-panel /var/litewp/panel/ 2>/dev/null || true
-    chown -R litewp-www:litewp-www /var/litewp/wordpress/ 2>/dev/null || true
-    chown -R root:root /var/litewp/logs/ 2>/dev/null || true
-    chown -R root:root /var/litewp/backups/ 2>/dev/null || true
-    
-    chmod 755 /var/litewp/wordpress/
-    chmod 700 /var/litewp/panel/
-    
-    log_message "${GREEN}✅ Directory structure created${NC}"
+    print_success "Directories created"
 }
 
-# Function to install Python dependencies
-install_python_deps() {
-    log_message "${BLUE}🐍 Installing Python dependencies...${NC}"
-    
-    # Create virtual environment
-    python3 -m venv /var/litewp/venv
-    source /var/litewp/venv/bin/activate
-    
-    # Upgrade pip
-    pip install --upgrade pip
-    
-    # Install dependencies from requirements.txt
-    if [[ -f "requirements.txt" ]]; then
-        pip install -r requirements.txt
-    else
-        # Fallback to manual installation
-        pip install fastapi uvicorn sqlalchemy python-multipart jinja2 python-dotenv requests cryptography bcrypt python-jose[cryptography] passlib[bcrypt]
-    fi
-    
-    log_message "${GREEN}✅ Python dependencies installed${NC}"
-}
-
-# Function to setup database
 setup_database() {
-    log_message "${BLUE}🗄️ Setting up database...${NC}"
+    print_status "Setting up SQLite database..."
     
-    # Create database directory
-    mkdir -p /var/litewp/panel/database
+    # Create SQLite database
+    sqlite3 "$CONFIG_DIR/panel.db" "
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        email TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
     
-    # Copy application files to panel directory
-    if [[ -d "app" ]]; then
-        cp -r app/* /var/litewp/panel/app/
-        # Copy main.py separately to ensure it's copied
-        if [[ -f "app/main.py" ]]; then
-            cp app/main.py /var/litewp/panel/app/
-        fi
-        # Copy __init__.py files
-        find app -name "__init__.py" -exec cp {} /var/litewp/panel/app/ \;
-    fi
+    CREATE TABLE IF NOT EXISTS websites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        domain TEXT UNIQUE NOT NULL,
+        document_root TEXT NOT NULL,
+        php_version TEXT DEFAULT '8.3',
+        ssl_enabled BOOLEAN DEFAULT 0,
+        wordpress_installed BOOLEAN DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
     
-    # Copy requirements.txt
-    if [[ -f "requirements.txt" ]]; then
-        cp requirements.txt /var/litewp/panel/
-    fi
+    CREATE TABLE IF NOT EXISTS databases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        username TEXT NOT NULL,
+        password TEXT NOT NULL,
+        website_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (website_id) REFERENCES websites(id)
+    );
     
-    # Initialize database using Python
-    cd /var/litewp/panel
-    source /var/litewp/venv/bin/activate
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    "
     
-    # Create database tables using SQLAlchemy
-    python3 -c "
-import sys
-import os
-sys.path.append('/var/litewp/panel')
-
-try:
-    from app.database.database import engine, Base
-    from app.models.models import WordPressSite, AdminSettings, BackupLog, SecurityLog
+    # Insert default admin user (password: admin123)
+    sqlite3 "$CONFIG_DIR/panel.db" "
+    INSERT OR IGNORE INTO users (username, password, email) 
+    VALUES ('admin', '\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin@litewp.local');
+    "
     
-    # Create all tables
-    Base.metadata.create_all(bind=engine)
+    # Insert default settings
+    sqlite3 "$CONFIG_DIR/panel.db" "
+    INSERT OR IGNORE INTO settings (key, value) VALUES 
+    ('panel_name', 'LiteWP'),
+    ('panel_url', 'http://localhost:8080'),
+    ('backup_retention', '30'),
+    ('ssl_provider', 'letsencrypt');
+    "
     
-    # Insert default admin settings
-    from sqlalchemy.orm import sessionmaker
-    
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    db = SessionLocal()
-    
-    # Check if admin settings already exist
-    existing_settings = db.query(AdminSettings).first()
-    if not existing_settings:
-        default_settings = AdminSettings(
-            admin_email='admin@example.com',
-            backup_retention=7,
-            auto_ssl=True,
-            security_level='medium'
-        )
-        db.add(default_settings)
-        db.commit()
-    
-    db.close()
-    print('Database initialized successfully')
-except Exception as e:
-    print(f'Database initialization error: {e}')
-    # Create simple SQLite database as fallback
-    import sqlite3
-    conn = sqlite3.connect('/var/litewp/panel/database/panel.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS wordpress_sites (
-            id INTEGER PRIMARY KEY,
-            domain TEXT UNIQUE,
-            wp_version TEXT,
-            db_name TEXT,
-            db_user TEXT,
-            db_password TEXT,
-            status TEXT DEFAULT 'active',
-            ssl_enabled BOOLEAN DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS admin_settings (
-            id INTEGER PRIMARY KEY,
-            admin_email TEXT,
-            backup_retention INTEGER DEFAULT 7,
-            auto_ssl BOOLEAN DEFAULT 1,
-            security_level TEXT DEFAULT 'medium',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    cursor.execute('''
-        INSERT OR IGNORE INTO admin_settings (admin_email, backup_retention, auto_ssl, security_level) 
-        VALUES ('admin@example.com', 7, 1, 'medium')
-    ''')
-    conn.commit()
-    conn.close()
-    print('Fallback database created successfully')
-"
-    
-    chmod 600 /var/litewp/panel/database/panel.db
-    
-    log_message "${GREEN}✅ Database setup completed${NC}"
+    print_success "Database setup complete"
 }
 
-# Function to configure OpenLiteSpeed
 configure_openlitespeed() {
-    log_message "${BLUE}⚙️ Configuring OpenLiteSpeed...${NC}"
+    print_status "Configuring OpenLiteSpeed..."
     
-    # Generate self-signed certificate like OLS1CLK
-    if [[ ! -f /usr/local/lsws/conf/example.key ]]; then
-        openssl req -x509 -nodes -days 820 -newkey rsa:2048 \
-            -keyout /usr/local/lsws/conf/example.key \
-            -out /usr/local/lsws/conf/example.crt \
-            -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
-        chmod 600 /usr/local/lsws/conf/example.key
-        chmod 600 /usr/local/lsws/conf/example.crt
-    fi
+    # Stop OpenLiteSpeed to configure
+    systemctl stop lsws
     
-    # Update main configuration
-    if [[ -f /usr/local/lsws/conf/httpd_config.conf ]]; then
-        # Update admin email
-        sed -i -e "s/adminEmails/adminEmails admin@example.com\n#adminEmails/" /usr/local/lsws/conf/httpd_config.conf
-        
-        # Update ports
-        sed -i -e "s/8088/80/" /usr/local/lsws/conf/httpd_config.conf
-        
-        # Add SSL listener
-        cat >> /usr/local/lsws/conf/httpd_config.conf << 'EOF'
-
-listener Defaultssl {
-address                 *:443
-secure                  1
-map                     Example *
-keyFile                 /usr/local/lsws/conf/example.key
-certFile                /usr/local/lsws/conf/example.crt
-}
-
-EOF
-    fi
-    
-    # Create LiteWP virtual host configuration
-    mkdir -p /usr/local/lsws/conf/vhosts/litewp/
-    cat > /usr/local/lsws/conf/vhosts/litewp/vhconf.conf << 'EOF'
-docRoot                   /var/litewp/wordpress
+    # Create panel virtual host configuration
+    cat > "$OLS_ROOT/conf/vhosts/litewp-panel/vhconf.conf" << 'EOF'
+docRoot                   $VH_ROOT/frontend
 
 accesslog  {
-  useServer               1
+  useServer               0
+  logFile                  $VH_ROOT/logs/access.log
+}
+
+errorlog  {
+  useServer               0
+  logFile                  $VH_ROOT/logs/error.log
 }
 
 index  {
   useServer               0
-  indexFiles              index.php, index.html
-}
-
-scripthandler  {
-  add                     lsapi:lsphp83 php
+  indexFiles              index.html index.php
 }
 
 context / {
-  location                /
-  allowBrowse            1
-  indexFiles             index.php, index.html
-  addDefaultCharset      off
+  location                $VH_ROOT/frontend
+  allowBrowse             1
+  indexFiles              index.html index.php
+}
+
+context /api {
+  location                $VH_ROOT/backend
+  allowBrowse             1
+  indexFiles              index.php
+  addDefaultCharset       off
   
-  # Security headers
-  addHeader              X-Frame-Options SAMEORIGIN
-  addHeader              X-Content-Type-Options nosniff
-  addHeader              X-XSS-Protection "1; mode=block"
-  addHeader              Referrer-Policy "strict-origin-when-cross-origin"
+  rewrite  {
+    enable                1
+    rules                 REWRITERULE ^(.*)$ /api/index.php?$1 [QSA,L]
+  }
 }
 
-rewrite  {
-  enable                  1
-  autoLoadHtaccess        1
+context /tools {
+  location                $VH_ROOT/tools
+  allowBrowse             1
+  indexFiles              index.php
+  addDefaultCharset       off
 }
 EOF
     
-    # Add virtual host to main config
-    cat >> /usr/local/lsws/conf/httpd_config.conf << 'EOF'
+    # Create panel virtual host directory
+    mkdir -p "$OLS_ROOT/conf/vhosts/litewp-panel"
+    mkdir -p "$OLS_ROOT/Example/litewp-panel"
+    
+    # Add panel virtual host to main config
+    cat >> "$OLS_ROOT/conf/httpd_config.conf" << 'EOF'
 
-virtualhost litewp {
-vhRoot                  /var/litewp/wordpress
-configFile              /usr/local/lsws/conf/vhosts/litewp/vhconf.conf
-allowSymbolLink         1
-enableScript            1
-restrained              0
-setUIDMode              2
+virtualhost litewp-panel {
+  vhRoot                  /usr/local/litewp/panel
+  configFile              $SERVER_ROOT/conf/vhosts/litewp-panel/vhconf.conf
+  allowSymbolLink         1
+  enableScript            1
+  restrained              0
+  setUIDMode              2
 }
 
-listener litewp {
-address                 *:80
-secure                  0
-map                     litewp *
+listener litewp-panel {
+  address                 *:8080
+  secure                  0
+  map                     litewp-panel *
 }
-
-listener litewpssl {
-address                 *:443
-secure                  1
-map                     litewp *
-keyFile                 /usr/local/lsws/conf/example.key
-certFile                /usr/local/lsws/conf/example.crt
-}
-
 EOF
     
-    # Set proper ownership
-    chown -R lsadm:lsadm /usr/local/lsws/conf/
+    # Create symbolic link for panel
+    ln -sf "$PANEL_DIR" "$OLS_ROOT/Example/litewp-panel"
     
-    log_message "${GREEN}✅ OpenLiteSpeed configured${NC}"
+    print_success "OpenLiteSpeed configured"
 }
 
-# Function to setup security
-setup_security() {
-    log_message "${BLUE}🔒 Setting up security...${NC}"
+setup_php() {
+    print_status "Configuring PHP..."
     
-    # Basic firewall rules
-    if command -v ufw &> /dev/null; then
-        ufw allow 22/tcp
-        ufw allow 80/tcp
-        ufw allow 443/tcp
-        ufw allow 7080/tcp
-        ufw --force enable
-    fi
-    
-    # Create security scanning script
-    cat > /var/litewp/panel/scripts/security_scan.sh << 'EOF'
-#!/bin/bash
-# Security scanning script
-
-SCAN_DIR="/var/litewp/wordpress"
-LOG_FILE="/var/litewp/panel/logs/security.log"
-
-echo "$(date): Starting security scan..." >> "$LOG_FILE"
-
-# Scan for suspicious files
-find "$SCAN_DIR" -name "*.php" -exec grep -l "eval\|base64_decode\|system\|shell_exec" {} \; >> "$LOG_FILE" 2>&1
-
-# Scan for hidden files
-find "$SCAN_DIR" -name ".*" -type f >> "$LOG_FILE" 2>&1
-
-# Check file permissions
-find "$SCAN_DIR" -type f -perm /111 >> "$LOG_FILE" 2>&1
-
-# Scan for large files (potential uploads)
-find "$SCAN_DIR" -type f -size +10M >> "$LOG_FILE" 2>&1
-
-echo "$(date): Security scan completed" >> "$LOG_FILE"
+    # Create PHP configuration for panel
+    cat > "$OLS_ROOT/lsphp83/etc/php.ini" << 'EOF'
+[PHP]
+upload_max_filesize = 512M
+post_max_size = 512M
+memory_limit = 1024M
+max_execution_time = 300
+max_input_time = 300
+display_errors = Off
+log_errors = On
+error_log = /usr/local/litewp/logs/php_errors.log
+session.cookie_httponly = 1
+session.use_strict_mode = 1
 EOF
     
-    chmod +x /var/litewp/panel/scripts/security_scan.sh
-    
-    log_message "${GREEN}✅ Security setup completed${NC}"
+    print_success "PHP configured"
 }
 
-# Function to setup services
-setup_services() {
-    log_message "${BLUE}🔧 Setting up services...${NC}"
+setup_firewall() {
+    print_status "Setting up firewall..."
     
-    # Create systemd service for LiteWP Panel
-    cat > /etc/systemd/system/litewp-panel.service << 'EOF'
+    # Install ufw if not present
+    apt install -y ufw
+    
+    # Configure firewall
+    ufw --force reset
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow ssh
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw allow 8080/tcp
+    ufw allow 7080/tcp  # OpenLiteSpeed admin
+    ufw --force enable
+    
+    print_success "Firewall configured"
+}
+
+create_services() {
+    print_status "Creating systemd services..."
+    
+    # Create backup service
+    cat > /etc/systemd/system/litewp-backup.service << 'EOF'
 [Unit]
-Description=LiteWP Panel FastAPI Application
+Description=LiteWP Backup Service
 After=network.target
 
 [Service]
-Type=simple
+Type=oneshot
 User=root
-Group=root
-WorkingDirectory=/var/litewp/panel
-Environment=PATH=/var/litewp/venv/bin
-ExecStart=/var/litewp/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-Restart=always
-RestartSec=10
+ExecStart=/usr/local/litewp/scripts/backup-system.sh
+EOF
+    
+    # Create backup timer
+    cat > /etc/systemd/system/litewp-backup.timer << 'EOF'
+[Unit]
+Description=Run LiteWP backup daily
+Requires=litewp-backup.service
+
+[Timer]
+OnCalendar=daily
+Persistent=true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=timers.target
 EOF
     
-    # Enable and start services
-    systemctl daemon-reload
-    systemctl enable litewp-panel
+    # Enable services
+    systemctl enable litewp-backup.timer
+    systemctl start litewp-backup.timer
+    
+    print_success "Services created"
+}
+
+setup_permissions() {
+    print_status "Setting up file permissions..."
+    
+    # Set ownership
+    chown -R lsadm:lsadm "$LITEWP_DIR"
+    chown -R lsadm:lsadm "$OLS_ROOT"
+    
+    # Set permissions
+    chmod -R 755 "$LITEWP_DIR"
+    chmod 600 "$CONFIG_DIR/panel.db"
+    
+    print_success "Permissions set"
+}
+
+install_panel_files() {
+    print_status "Installing panel files..."
+    
+    # Create basic panel structure
+    mkdir -p "$PANEL_DIR/backend/api"
+    mkdir -p "$PANEL_DIR/backend/includes"
+    mkdir -p "$PANEL_DIR/frontend"
+    mkdir -p "$PANEL_DIR/tools"
+    mkdir -p "$PANEL_DIR/logs"
+    
+    # Create basic files
+    cat > "$PANEL_DIR/backend/api/index.php" << 'EOF'
+<?php
+header('Content-Type: application/json');
+echo json_encode(['status' => 'LiteWP API is running']);
+EOF
+    
+    cat > "$PANEL_DIR/frontend/index.html" << 'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LiteWP - WordPress Hosting Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-md">
+            <h1 class="text-2xl font-bold text-gray-800 mb-4">LiteWP</h1>
+            <p class="text-gray-600">WordPress Hosting Panel</p>
+            <p class="text-sm text-gray-500 mt-2">Installation complete!</p>
+            <div class="mt-4">
+                <a href="/login.php" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Login to Panel</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+EOF
+    
+    print_success "Panel files installed"
+}
+
+finalize_installation() {
+    print_status "Finalizing installation..."
+    
+    # Start OpenLiteSpeed
+    systemctl start lsws
     systemctl enable lsws
     
-    log_message "${GREEN}✅ Services configured${NC}"
+    # Start other services
+    systemctl start mariadb
+    systemctl enable mariadb
+    systemctl start redis
+    systemctl enable redis
+    
+    print_success "Installation completed!"
+    
+    echo ""
+    echo -e "${GREEN}================================${NC}"
+    echo -e "${GREEN}    LiteWP Installation Complete${NC}"
+    echo -e "${GREEN}================================${NC}"
+    echo ""
+    echo -e "Panel URL: ${BLUE}http://$(hostname -I | awk '{print $1}'):8080${NC}"
+    echo -e "OLS Admin: ${BLUE}http://$(hostname -I | awk '{print $1}'):7080${NC}"
+    echo -e "Default Login: ${BLUE}admin${NC}"
+    echo -e "Default Password: ${BLUE}admin123${NC}"
+    echo ""
+    echo -e "Next steps:"
+    echo -e "1. Access the panel at the URL above"
+    echo -e "2. Change the default password"
+    echo -e "3. Add your first website"
+    echo ""
 }
 
-# Function to create backup script
-create_backup_script() {
-    log_message "${BLUE}💾 Creating backup script...${NC}"
-    
-    cat > /var/litewp/panel/scripts/backup.sh << 'EOF'
-#!/bin/bash
-# Backup script for LiteWP Panel
-
-BACKUP_DIR="/var/litewp/backups"
-RETENTION_DAYS=7
-LOG_FILE="/var/litewp/panel/logs/backup.log"
-
-echo "$(date): Starting backup process..." >> "$LOG_FILE"
-
-# Create backup directory if not exists
-mkdir -p "$BACKUP_DIR"
-
-# Backup all WordPress sites
-for site in /var/litewp/wordpress/*; do
-    if [ -d "$site" ]; then
-        site_name=$(basename "$site")
-        backup_file="$BACKUP_DIR/${site_name}_$(date +%Y%m%d_%H%M%S).zip"
-        
-        # Backup files
-        zip -r "$backup_file" "$site" >> "$LOG_FILE" 2>&1
-        
-        # Backup database
-        db_name="wp_${site_name//./_}"
-        mysqldump "$db_name" > "${backup_file%.zip}_db.sql" 2>> "$LOG_FILE"
-        
-        echo "$(date): Backed up $site_name" >> "$LOG_FILE"
-    fi
-done
-
-# Clean old backups
-find "$BACKUP_DIR" -name "*.zip" -mtime +$RETENTION_DAYS -delete >> "$LOG_FILE" 2>&1
-find "$BACKUP_DIR" -name "*.sql" -mtime +$RETENTION_DAYS -delete >> "$LOG_FILE" 2>&1
-
-echo "$(date): Backup process completed" >> "$LOG_FILE"
-EOF
-    
-    chmod +x /var/litewp/panel/scripts/backup.sh
-    
-    # Setup cron job for daily backup
-    (crontab -l 2>/dev/null; echo "0 2 * * * /var/litewp/panel/scripts/backup.sh") | crontab -
-    
-    log_message "${GREEN}✅ Backup script created${NC}"
-}
-
-# Function to display success message
-display_success() {
-    local IP=$(hostname -I | awk '{print $1}')
-    
-    log_message "${GREEN}"
-    log_message "🎉 LiteWP Panel installed successfully!"
-    log_message ""
-    log_message "📊 Installation Summary:"
-    log_message "   • OpenLiteSpeed: ✅ Installed"
-    log_message "   • lsPHP 8.3: ✅ Installed"
-    log_message "   • FastAPI: ✅ Installed"
-    log_message "   • Database: ✅ Configured"
-    log_message "   • Security: ✅ Configured"
-    log_message "   • Backup: ✅ Configured"
-    log_message ""
-    log_message "🌐 Access Information:"
-    log_message "   • Panel URL: http://${IP}:8000"
-    log_message "   • OpenLiteSpeed Admin: http://${IP}:7080"
-    log_message "   • WordPress Sites: http://${IP}:80"
-    log_message ""
-    log_message "📁 Important Directories:"
-    log_message "   • Panel: /var/litewp/panel/"
-    log_message "   • WordPress Sites: /var/litewp/wordpress/"
-    log_message "   • Backups: /var/litewp/backups/"
-    log_message "   • Logs: /var/litewp/logs/"
-    log_message ""
-    log_message "🔧 Next Steps:"
-    log_message "   1. Access the panel at http://${IP}:8000"
-    log_message "   2. Add your first WordPress site"
-    log_message "   3. Configure SSL certificates"
-    log_message "   4. Set up regular backups"
-    log_message ""
-    log_message "📝 Installation log: $LOG_FILE"
-    log_message "${NC}"
-}
-
-# Main installation function
+# Main installation
 main() {
-    log_message "${BLUE}🚀 Starting LiteWP Panel installation...${NC}"
+    echo -e "${BLUE}================================${NC}"
+    echo -e "${BLUE}    LiteWP Installation Script${NC}"
+    echo -e "${BLUE}================================${NC}"
+    echo ""
     
-    # Check if running as root
     check_root
-    
-    # Detect OS
-    detect_os
-    
-    # Install dependencies
+    check_os
+    update_system
     install_dependencies
-    
-    # Install OpenLiteSpeed
     install_openlitespeed
-    
-    # Install lsPHP
-    install_lsphp
-    
-    # Setup directories
-    setup_directories
-    
-    # Install Python dependencies
-    install_python_deps
-    
-    # Setup database
+    install_mariadb
+    create_directories
     setup_database
-    
-    # Configure OpenLiteSpeed
     configure_openlitespeed
-    
-    # Setup security
-    setup_security
-    
-    # Setup services
-    setup_services
-    
-    # Create backup script
-    create_backup_script
-    
-    # Start services
-    systemctl start lsws
-    systemctl start litewp-panel
-    
-    # Display success message
-    display_success
+    setup_php
+    setup_firewall
+    create_services
+    install_panel_files
+    setup_permissions
+    finalize_installation
 }
 
-# Run main function
+# Run installation
 main "$@" 
