@@ -376,14 +376,22 @@ install_panel_files() {
     mkdir -p "$PANEL_DIR/tools"
     mkdir -p "$PANEL_DIR/logs"
     
-    # Create basic files
-    cat > "$PANEL_DIR/backend/api/index.php" << 'EOF'
-<?php
-header('Content-Type: application/json');
-echo json_encode(['status' => 'LiteWP API is running']);
-EOF
+    # Copy all panel files from current directory
+    if [ -d "frontend" ]; then
+        cp -r frontend/* "$PANEL_DIR/frontend/"
+    fi
     
-    cat > "$PANEL_DIR/frontend/index.html" << 'EOF'
+    if [ -d "backend" ]; then
+        cp -r backend/* "$PANEL_DIR/backend/"
+    fi
+    
+    if [ -d "tools" ]; then
+        cp -r tools/* "$PANEL_DIR/tools/"
+    fi
+    
+    # Create basic files if not exists
+    if [ ! -f "$PANEL_DIR/frontend/index.html" ]; then
+        cat > "$PANEL_DIR/frontend/index.html" << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -406,6 +414,7 @@ EOF
 </body>
 </html>
 EOF
+    fi
     
     print_success "Panel files installed"
 }
