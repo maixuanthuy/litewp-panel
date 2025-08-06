@@ -417,11 +417,20 @@ finalize_installation() {
     systemctl start lsws
     systemctl enable lsws
     
-    # Start other services
+    # Start MariaDB
     systemctl start mariadb
     systemctl enable mariadb
-    systemctl start redis
-    systemctl enable redis
+    
+    # Start Redis (handle different service names)
+    if systemctl list-unit-files | grep -q "redis-server.service"; then
+        systemctl start redis-server
+        systemctl enable redis-server
+    elif systemctl list-unit-files | grep -q "redis.service"; then
+        systemctl start redis
+        systemctl enable redis
+    else
+        print_warning "Redis service not found, skipping"
+    fi
     
     print_success "Installation completed!"
     
