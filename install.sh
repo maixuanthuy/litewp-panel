@@ -89,8 +89,14 @@ install_openlitespeed() {
     # Install OpenLiteSpeed
     apt install -y openlitespeed
     
-    # Install LSPHP 8.3
-    apt install -y lsphp83 lsphp83-mysql lsphp83-common lsphp83-curl lsphp83-gd lsphp83-mbstring lsphp83-xml lsphp83-zip
+    # Install LSPHP 8.3 and available extensions
+    apt install -y lsphp83 lsphp83-mysql lsphp83-common lsphp83-curl
+    
+    # Try to install additional extensions (skip if not available)
+    apt install -y lsphp83-gd 2>/dev/null || print_warning "lsphp83-gd not available"
+    apt install -y lsphp83-mbstring 2>/dev/null || print_warning "lsphp83-mbstring not available"
+    apt install -y lsphp83-xml 2>/dev/null || print_warning "lsphp83-xml not available"
+    apt install -y lsphp83-zip 2>/dev/null || print_warning "lsphp83-zip not available"
     
     print_success "OpenLiteSpeed installed"
 }

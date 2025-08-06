@@ -34,10 +34,10 @@ LiteWP là một WordPress Hosting Panel đơn giản, tập trung vào UX và d
 ### Cài đặt nhanh
 ```bash
 # Chạy script cài đặt
-curl -sSL https://raw.githubusercontent.com/litewp/panel/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/maixuanthuy/litewp-panel/main/install.sh | bash
 
 # Hoặc
-wget -O - https://raw.githubusercontent.com/litewp/panel/main/install.sh | bash
+wget -O - https://raw.githubusercontent.com/maixuanthuy/litewp-panel/main/install.sh | bash
 ```
 
 ### Cài đặt thủ công
